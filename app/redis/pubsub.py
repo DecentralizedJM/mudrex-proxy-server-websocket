@@ -46,7 +46,7 @@ class PubSubManager(RedisRetryMixin):
         self._lock = asyncio.Lock()
 
     async def start(self):
-        """Start the Pub/Sub manager and begin listening for messages."""
+        """Start the Pub/Sub manager (listener starts on first subscription)."""
         if self._running:
             logger.warning("PubSubManager already running")
             return
@@ -54,9 +54,10 @@ class PubSubManager(RedisRetryMixin):
         self._redis = await get_redis()
         self._pubsub = self._redis.pubsub()
         self._running = True
+        self._listener_started = False
         
-        # Start the listener task
-        self._listener_task = asyncio.create_task(self._listen())
+        # Note: Listener task starts when first subscription is made
+        # This avoids "pubsub connection not set" error
         logger.info("PubSubManager started")
 
     async def stop(self):
@@ -110,6 +111,12 @@ class PubSubManager(RedisRetryMixin):
                 if self._pubsub:
                     await self._pubsub.subscribe(channel)
                     logger.debug(f"Subscribed to Redis channel: {channel}")
+                    
+                    # Start listener on first subscription
+                    if not self._listener_started:
+                        self._listener_task = asyncio.create_task(self._listen())
+                        self._listener_started = True
+                        logger.debug("Started PubSub listener on first subscription")
             
             # Register the callback
             self._subscriptions[channel][client_id] = callback
