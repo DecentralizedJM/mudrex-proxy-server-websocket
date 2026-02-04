@@ -6,7 +6,7 @@ dockerfilePath = "Dockerfile"
 # Health check configuration
 healthcheckPath = "/health"
 healthcheckTimeout = 120
-startCommand = "uvicorn app.main:app --host 0.0.0.0 --port 8000"
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 numReplicas = 1
 
 # Restart policy
