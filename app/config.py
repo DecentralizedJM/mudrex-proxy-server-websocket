@@ -3,7 +3,8 @@ Configuration loader from environment variables.
 Production-ready with validation and sensible defaults.
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from pydantic import field_validator
+from typing import Optional, Any
 import os
 
 
@@ -12,6 +13,13 @@ class Settings(BaseSettings):
     Application settings loaded from environment variables.
     All settings have sensible defaults for local development.
     """
+    
+    @field_validator("BYBIT_TESTNET", "LOG_JSON", "DEBUG", "REDIS_RETRY_ON_TIMEOUT", mode="before")
+    @classmethod
+    def strip_whitespace(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip()
+        return v
     
     model_config = SettingsConfigDict(
         env_file=".env",
