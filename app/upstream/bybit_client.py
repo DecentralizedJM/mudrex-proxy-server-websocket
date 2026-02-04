@@ -75,7 +75,7 @@ class BybitWebSocketClient:
         return self._connected and self._ws is not None
 
     async def start(self):
-        """Start the WebSocket client."""
+        """Start the WebSocket client (non-blocking)."""
         if self._running:
             logger.warning("Client already running")
             return
@@ -83,7 +83,8 @@ class BybitWebSocketClient:
         self._running = True
         logger.info(f"Starting Bybit client for {self.category}")
         
-        await self._connect()
+        # Run connection in background task so start() returns immediately
+        self._connection_task = asyncio.create_task(self._connect_loop())
 
     async def stop(self):
         """Stop the WebSocket client gracefully."""
@@ -91,7 +92,13 @@ class BybitWebSocketClient:
         self._connected = False
         
         # Cancel tasks
-        for task in [self._listener_task, self._heartbeat_task, self._reconnect_task]:
+        tasks_to_cancel = [
+            self._listener_task, 
+            self._heartbeat_task, 
+            self._reconnect_task,
+            getattr(self, '_connection_task', None)
+        ]
+        for task in tasks_to_cancel:
             if task and not task.done():
                 task.cancel()
                 try:
@@ -109,47 +116,56 @@ class BybitWebSocketClient:
         
         logger.info(f"Bybit client stopped for {self.category}")
 
-    async def _connect(self):
-        """Establish WebSocket connection with retry logic."""
+    async def _connect_loop(self):
+        """Background task that maintains the WebSocket connection."""
         while self._running:
             try:
-                logger.info(f"Connecting to {self.url}")
-                
-                self._ws = await websockets.connect(
-                    self.url,
-                    ping_interval=None,  # We handle pings ourselves
-                    ping_timeout=None,
-                    close_timeout=5.0,
-                    max_size=10 * 1024 * 1024,  # 10MB max message size
-                )
-                
-                self._connected = True
-                self._reconnect_delay = settings.BYBIT_RECONNECT_DELAY_INITIAL
-                logger.info(f"Connected to Bybit {self.category}")
-                
-                # Resubscribe to previous topics
-                if self._subscribed:
-                    await self._resubscribe()
-                
-                # Start background tasks
-                self._listener_task = asyncio.create_task(self._listen())
-                self._heartbeat_task = asyncio.create_task(self._heartbeat())
-                
-                # Wait for listener to complete (disconnect)
-                await self._listener_task
-                
-            except (ConnectionClosed, ConnectionClosedError) as e:
-                logger.warning(f"Connection closed: {e}")
-            except InvalidStatusCode as e:
-                logger.error(f"Invalid status code: {e}")
+                await self._connect_once()
+            except asyncio.CancelledError:
+                break
             except Exception as e:
-                logger.error(f"Connection error: {e}")
-            
-            self._connected = False
+                logger.error(f"Connection loop error: {e}")
             
             # Handle reconnection
             if self._running:
                 await self._schedule_reconnect()
+
+    async def _connect_once(self):
+        """Establish a single WebSocket connection."""
+        try:
+            logger.info(f"Connecting to {self.url}")
+            
+            self._ws = await websockets.connect(
+                self.url,
+                ping_interval=None,  # We handle pings ourselves
+                ping_timeout=None,
+                close_timeout=5.0,
+                max_size=10 * 1024 * 1024,  # 10MB max message size
+            )
+            
+            self._connected = True
+            self._reconnect_delay = settings.BYBIT_RECONNECT_DELAY_INITIAL
+            logger.info(f"Connected to Bybit {self.category}")
+            
+            # Resubscribe to previous topics
+            if self._subscribed:
+                await self._resubscribe()
+            
+            # Start background tasks
+            self._listener_task = asyncio.create_task(self._listen())
+            self._heartbeat_task = asyncio.create_task(self._heartbeat())
+            
+            # Wait for listener to complete (disconnect triggers this)
+            await self._listener_task
+            
+        except (ConnectionClosed, ConnectionClosedError) as e:
+            logger.warning(f"Connection closed: {e}")
+        except InvalidStatusCode as e:
+            logger.error(f"Invalid status code: {e}")
+        except Exception as e:
+            logger.error(f"Connection error: {e}")
+        finally:
+            self._connected = False
 
     async def _schedule_reconnect(self):
         """Schedule a reconnection with exponential backoff."""
