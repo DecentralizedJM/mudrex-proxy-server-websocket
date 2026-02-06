@@ -34,7 +34,9 @@ class UpstreamPool:
         
         # Track which symbols we've subscribed to on Bybit
         self._upstream_subscribed: Dict[str, Set[str]] = {}  # category -> set of topics
-        
+        # Topics currently being subscribed (avoids duplicate Bybit subscribe from concurrent tasks)
+        self._in_flight: Dict[str, Set[str]] = {}  # category -> set of topics
+
         # Lock for subscription management
         self._lock = asyncio.Lock()
         
@@ -64,6 +66,7 @@ class UpstreamPool:
         
         self._clients.clear()
         self._upstream_subscribed.clear()
+        self._in_flight.clear()
         logger.info("Upstream pool stopped")
 
     async def _create_client(self, category: str) -> BybitWebSocketClient:
@@ -99,29 +102,30 @@ class UpstreamPool:
             category: Bybit category (e.g., "linear")
         """
         topic = self._make_topic(stream_type, symbol)
-        
+
         async with self._lock:
-            # Check if already subscribed upstream
             if category not in self._upstream_subscribed:
                 self._upstream_subscribed[category] = set()
-            
+            if category not in self._in_flight:
+                self._in_flight[category] = set()
             if topic in self._upstream_subscribed[category]:
                 return
-            
-            # Ensure client exists
+            if topic in self._in_flight[category]:
+                return  # Another task is already subscribing this topic
+            self._in_flight[category].add(topic)
             if category not in self._clients:
                 await self._create_client(category)
-            
             client = self._clients[category]
-            
-            # Subscribe on Bybit
-            await client.subscribe([topic])
-            self._upstream_subscribed[category].add(topic)
-            
-            # Mark in Redis
-            await self.subscriptions.mark_upstream_subscribed(stream_type, symbol)
-            
-            logger.info(f"Subscribed upstream: {topic}")
+
+        await client.subscribe([topic])
+        await self.subscriptions.mark_upstream_subscribed(stream_type, symbol)
+        logger.info(f"Subscribed upstream: {topic}")
+
+        async with self._lock:
+            if category in self._in_flight:
+                self._in_flight[category].discard(topic)
+            if category in self._upstream_subscribed:
+                self._upstream_subscribed[category].add(topic)
 
     async def ensure_unsubscribed(
         self,
@@ -134,25 +138,20 @@ class UpstreamPool:
         Called when a client unsubscribes.
         """
         topic = self._make_topic(stream_type, symbol)
-        
+
+        count = await self.subscriptions.get_count(stream_type, symbol)
+        if count > 0:
+            return
+
         async with self._lock:
-            # Check if anyone still needs this subscription
-            count = await self.subscriptions.get_count(stream_type, symbol)
-            
-            if count > 0:
-                # Other clients still need it
+            if category not in self._clients or topic not in self._upstream_subscribed.get(category, set()):
                 return
-            
-            # Unsubscribe from Bybit
-            if category in self._clients and topic in self._upstream_subscribed.get(category, set()):
-                client = self._clients[category]
-                await client.unsubscribe([topic])
-                self._upstream_subscribed[category].discard(topic)
-                
-                # Mark in Redis
-                await self.subscriptions.mark_upstream_unsubscribed(stream_type, symbol)
-                
-                logger.info(f"Unsubscribed upstream: {topic}")
+            client = self._clients[category]
+            self._upstream_subscribed[category].discard(topic)
+
+        await client.unsubscribe([topic])
+        await self.subscriptions.mark_upstream_unsubscribed(stream_type, symbol)
+        logger.info(f"Unsubscribed upstream: {topic}")
 
     async def _on_upstream_message(self, message: Dict[str, Any]):
         """

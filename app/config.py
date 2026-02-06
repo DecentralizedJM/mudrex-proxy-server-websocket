@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # Redis Configuration (Required for production)
     # ==========================================================================
     REDIS_URL: str = "redis://localhost:6379"
-    REDIS_MAX_CONNECTIONS: int = 20
+    REDIS_MAX_CONNECTIONS: int = 50  # Use 50–100 for 1000+ concurrent clients
     REDIS_SOCKET_TIMEOUT: float = 5.0
     REDIS_RETRY_ON_TIMEOUT: bool = True
 
@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
     LOG_JSON: bool = False  # Set True for production JSON logs
+
+    # ==========================================================================
+    # PubSub fan-out (production scale)
+    # ==========================================================================
+    FANOUT_CALLBACK_TIMEOUT: float = 5.0  # Seconds per client send; slow clients are skipped after this
 
     # ==========================================================================
     # Health & Metrics

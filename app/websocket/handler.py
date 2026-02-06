@@ -52,6 +52,9 @@ class ClientHandler:
         
         # Track this client's subscriptions
         self._subscribed_keys: set = set()
+        # Consecutive send failures; after threshold we close the socket so cleanup runs
+        self._consecutive_send_errors: int = 0
+        self._max_consecutive_send_errors: int = 3
 
     async def handle(self):
         """Main handler loop for the client."""
@@ -62,7 +65,15 @@ class ClientHandler:
                 # Receive message
                 raw = await self.client.websocket.receive_text()
                 self.client.update_activity()
-                
+
+                # Enforce receive-side rate limit (abusive client protection)
+                if not self.client.check_receive_rate():
+                    await self._send_error(
+                        "RATE_LIMIT_EXCEEDED",
+                        f"Max {settings.MAX_MESSAGE_RATE_PER_CLIENT} messages per second",
+                    )
+                    continue
+
                 # Parse and handle
                 try:
                     message = json.loads(raw)
@@ -97,7 +108,7 @@ class ClientHandler:
     async def _handle_subscribe(self, args: list):
         """Handle subscription request."""
         client_id = self.client.client_id
-        
+
         if not args:
             await self._send_error("INVALID_ARGS", "No streams specified")
             return
@@ -117,7 +128,7 @@ class ClientHandler:
             try:
                 stream_type, symbol, interval = parse_stream_arg(arg)
                 stream_key = make_stream_key(stream_type, symbol, interval)
-                
+
                 # Skip if already subscribed
                 if stream_key in self._subscribed_keys:
                     subscribed.append(arg)
@@ -142,7 +153,7 @@ class ClientHandler:
                 await self.manager.add_subscription(client_id, stream_key)
                 
                 subscribed.append(arg)
-                
+
             except ValueError as e:
                 logger.warning(f"Invalid subscription arg '{arg}': {e}")
                 continue
@@ -154,7 +165,7 @@ class ClientHandler:
             message=f"Subscribed to {len(subscribed)} streams"
         )
         await self.client.websocket.send_json(response.model_dump())
-        
+
         logger.info(f"Client {client_id} subscribed to {len(subscribed)} streams")
 
     async def _handle_unsubscribe(self, args: list):
@@ -209,14 +220,24 @@ class ClientHandler:
         response = PongResponse(timestamp=int(time.time() * 1000))
         await self.client.websocket.send_json(response.model_dump())
 
-    async def _on_stream_message(self, channel: str, data: Dict[str, Any]):
-        """Callback when a message arrives from Redis pub/sub."""
+    async def _on_stream_message(self, channel: str, data: Dict[str, Any], pre_serialized: Optional[str] = None):
+        """Callback when a message arrives from Redis pub/sub. Use pre_serialized when set to avoid json.dumps per send."""
         try:
-            await self.client.websocket.send_json(data)
+            if pre_serialized is not None:
+                await self.client.websocket.send_text(pre_serialized)
+            else:
+                await self.client.websocket.send_json(data)
             self.client.message_count += 1
+            self._consecutive_send_errors = 0
         except Exception as e:
-            logger.debug(f"Failed to send message to client {self.client.client_id}: {e}")
+            self._consecutive_send_errors += 1
             self.client.error_count += 1
+            logger.debug(f"Failed to send message to client {self.client.client_id}: {e}")
+            if self._consecutive_send_errors >= self._max_consecutive_send_errors:
+                try:
+                    await self.client.websocket.close(code=1011, reason="Too many send failures")
+                except Exception:
+                    pass
 
     async def _send_error(self, code: str, message: str):
         """Send an error response to the client."""
@@ -229,29 +250,21 @@ class ClientHandler:
     async def _cleanup(self):
         """Clean up client resources on disconnect."""
         client_id = self.client.client_id
-        
-        # Unsubscribe from all streams
+
         for stream_key in list(self._subscribed_keys):
             try:
                 parts = stream_key.split(":")
                 if len(parts) >= 2:
                     stream_type = parts[0]
                     symbol = parts[-1]
-                    
                     await self.subscriptions.decrement(stream_type, symbol)
-                    await self.pubsub.unsubscribe(stream_type, symbol, client_id)
                     await self.upstream.ensure_unsubscribed(stream_type, symbol)
             except Exception as e:
                 logger.error(f"Error cleaning up subscription {stream_key}: {e}")
-        
+
         self._subscribed_keys.clear()
-        
-        # Unsubscribe from all pubsub
         await self.pubsub.unsubscribe_client(client_id)
-        
-        # Remove from connection manager
         await self.manager.disconnect(client_id)
-        
         logger.debug(f"Client {client_id} cleanup complete")
 
 

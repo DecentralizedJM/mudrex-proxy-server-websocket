@@ -143,9 +143,12 @@ asyncio.run(main())
 | `REDIS_URL` | ✅ | - | Redis connection URL |
 | `DEBUG` | | `false` | Enable debug logging |
 | `ENVIRONMENT` | | `production` | Environment name |
+| `REDIS_MAX_CONNECTIONS` | | `50` | Redis pool size; use 50–100 for 1000+ clients |
 | `MAX_CLIENTS_TOTAL` | | `10000` | Max connected clients |
 | `MAX_SUBSCRIPTIONS_PER_CLIENT` | | `100` | Max subscriptions per client |
+| `MAX_MESSAGE_RATE_PER_CLIENT` | | `100` | Max client messages per second (receive-side) |
 | `CLIENT_IDLE_TIMEOUT` | | `300` | Idle timeout in seconds |
+| `FANOUT_CALLBACK_TIMEOUT` | | `5` | Seconds per client send before skipping slow clients |
 
 ## HTTP Endpoints
 
@@ -194,6 +197,14 @@ mudrex-ws-proxy/
 - ✅ **Health Checks**: Ready for load balancer health probes
 - ✅ **Multi-stage Docker**: Optimized container size
 - ✅ **JSON Logging**: Production-ready structured logs
+- ✅ **Parallel fan-out**: Message delivery to 1000+ clients without serial delay
+- ✅ **Rate limiting**: Per-client receive rate limit to protect from abusive clients
+
+### Production deployment (1000+ users)
+
+- **Redis pool**: Set `REDIS_MAX_CONNECTIONS=50` (or 50–100) so subscribe/unsubscribe bursts and subscription-manager ops have enough connections under load.
+- **Single worker**: The app runs with one Uvicorn worker by design; WebSockets require a single process for shared connection state. Do not increase `--workers` for the WebSocket server.
+- **Load testing**: Before going live at scale, run a load test (e.g. 1000 concurrent connections, subscribe to the same channel, measure latency and drops) using a tool like [Artillery](https://www.artillery.io/) or a custom script.
 
 ## License
 

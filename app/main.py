@@ -103,7 +103,18 @@ async def lifespan(app: FastAPI):
     # Shutdown
     # =========================================================================
     logger.info("Shutting down...")
-    
+
+    # Drain clients: close all WebSockets so handlers run cleanup (subscriptions, etc.)
+    clients = connection_manager.get_all_clients()
+    if clients:
+        logger.info(f"Closing {len(clients)} client connections...")
+        for client_id, state in clients.items():
+            try:
+                await state.websocket.close(code=1001, reason="Server going away")
+            except Exception:
+                pass
+        await asyncio.sleep(2.0)  # Allow handlers to run _cleanup
+
     # Cancel background tasks
     if _cleanup_task:
         _cleanup_task.cancel()
@@ -111,7 +122,7 @@ async def lifespan(app: FastAPI):
             await _cleanup_task
         except asyncio.CancelledError:
             pass
-    
+
     # Stop upstream pool
     if upstream_pool:
         await upstream_pool.stop()
@@ -204,14 +215,16 @@ async def health():
     Health check endpoint for load balancers and monitoring.
     """
     redis_healthy = await check_redis_health()
-    
-    status = "healthy" if redis_healthy else "degraded"
-    
+    listener_healthy = pubsub_manager.is_listener_healthy() if pubsub_manager else True
+    ok = redis_healthy and listener_healthy
+    status = "healthy" if ok else "degraded"
+
     return JSONResponse(
-        status_code=200 if redis_healthy else 503,
+        status_code=200 if ok else 503,
         content={
             "status": status,
             "redis": "connected" if redis_healthy else "disconnected",
+            "pubsub_listener": "ok" if listener_healthy else "degraded",
             "connections": connection_manager.active_count,
         }
     )

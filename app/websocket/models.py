@@ -47,9 +47,12 @@ class SubscribeRequest(BaseModel):
         validated = []
         for arg in v:
             parts = arg.split(":")
-            if len(parts) < 2:
-                raise ValueError(f"Invalid stream format: {arg}. Expected 'type:symbol'")
-            validated.append(arg)
+            if len(parts) >= 2:
+                validated.append(arg)
+            elif arg.startswith("tickers.") and len(arg) > len("tickers."):
+                validated.append(arg)
+            else:
+                raise ValueError(f"Invalid stream format: {arg}. Expected 'type:symbol' or 'tickers.SYMBOL'")
         return validated
 
 
@@ -174,19 +177,29 @@ def parse_stream_arg(arg: str) -> tuple[str, str, Optional[str]]:
     Parse a stream argument into components.
     
     Args:
-        arg: Stream argument like "ticker:BTCUSDT" or "kline:1h:BTCUSDT"
+        arg: Stream argument like "ticker:BTCUSDT", "kline:1h:BTCUSDT", or "tickers.BTCUSDT"
     
     Returns:
         Tuple of (stream_type, symbol, interval_or_none)
     """
+    # Accept legacy dot format: tickers.SYMBOL -> ticker stream
+    if arg.startswith("tickers.") and len(arg) > len("tickers."):
+        symbol = arg[len("tickers.") :]
+        return "ticker", symbol, None
+
     parts = arg.split(":")
-    
     if len(parts) == 2:
-        return parts[0], parts[1], None
+        stream_type, symbol = parts[0], parts[1]
     elif len(parts) == 3:
-        return parts[0], parts[2], parts[1]
+        stream_type, symbol = parts[0], parts[2]
     else:
         raise ValueError(f"Invalid stream format: {arg}")
+    valid_types = {e.value for e in StreamType}
+    if stream_type not in valid_types:
+        raise ValueError(f"Invalid stream type: {stream_type}. Expected one of {sorted(valid_types)}")
+    if len(parts) == 2:
+        return stream_type, symbol, None
+    return stream_type, symbol, parts[1]
 
 
 def make_stream_key(stream_type: str, symbol: str, interval: Optional[str] = None) -> str:

@@ -4,7 +4,7 @@ Handles rebranding and data normalization.
 """
 import json
 from typing import Any, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from app.utils.logging import get_logger
 
 logger = get_logger("upstream.transformer")
@@ -61,7 +61,7 @@ def transform_bybit_ticker(bybit_message: Dict[str, Any]) -> Optional[Dict[str, 
         symbol = topic.replace("tickers.", "")
         data = bybit_message.get("data", {})
         msg_type = bybit_message.get("type", "delta")
-        ts = bybit_message.get("ts", int(datetime.utcnow().timestamp() * 1000))
+        ts = bybit_message.get("ts", int(datetime.now(timezone.utc).timestamp() * 1000))
         
         # Parse and format percentage
         change_pct = _format_percent(data.get("price24hPcnt", "0"))
@@ -150,7 +150,7 @@ def transform_bybit_kline(bybit_message: Dict[str, Any]) -> Optional[Dict[str, A
             return None
             
         kline = data_list[0]
-        ts = bybit_message.get("ts", int(datetime.utcnow().timestamp() * 1000))
+        ts = bybit_message.get("ts", int(datetime.now(timezone.utc).timestamp() * 1000))
         
         mudrex_data = {
             "symbol": symbol,
@@ -207,7 +207,7 @@ def transform_bybit_trade(bybit_message: Dict[str, Any]) -> Optional[Dict[str, A
         
         symbol = topic.replace("publicTrade.", "")
         data_list = bybit_message.get("data", [])
-        ts = bybit_message.get("ts", int(datetime.utcnow().timestamp() * 1000))
+        ts = bybit_message.get("ts", int(datetime.now(timezone.utc).timestamp() * 1000))
         
         trades = []
         for trade in data_list:

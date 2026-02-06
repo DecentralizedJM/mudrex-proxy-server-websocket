@@ -9,12 +9,14 @@ from contextlib import asynccontextmanager
 import redis.asyncio as aioredis
 from redis.exceptions import RedisError
 from app.redis.client import get_redis, RedisRetryMixin
+from app.config import settings
 from app.utils.logging import get_logger
 
 logger = get_logger("redis.pubsub")
 
-# Type alias for message callbacks
-MessageCallback = Callable[[str, Dict[str, Any]], Any]
+# Type alias for message callbacks: (channel, data, pre_serialized|None)
+# When pre_serialized is set, callback should send_text(pre_serialized) to avoid N× json.dumps.
+MessageCallback = Callable[[str, Dict[str, Any], Optional[str]], Any]
 
 
 class PubSubManager(RedisRetryMixin):
@@ -44,6 +46,12 @@ class PubSubManager(RedisRetryMixin):
         
         # Lock for thread-safe subscription management
         self._lock = asyncio.Lock()
+
+        # Listener resilience: auto-restart on unexpected exceptions
+        self._listener_retries = 0
+        self._listener_degraded = False
+        self.LISTENER_MAX_RETRIES = 10
+        self.LISTENER_RETRY_SLEEP = 2.0
 
     async def start(self):
         """Start the Pub/Sub manager (listener starts on first subscription)."""
@@ -184,36 +192,45 @@ class PubSubManager(RedisRetryMixin):
         except RedisError as e:
             logger.error(f"Failed to publish to {channel}: {e}")
 
+    def is_listener_healthy(self) -> bool:
+        """True if listener task is running and not degraded."""
+        if self._listener_degraded:
+            return False
+        if self._listener_task is None:
+            return True  # Not started yet
+        return not self._listener_task.done()
+
     async def _listen(self):
         """
         Background task that listens for Redis Pub/Sub messages.
-        Distributes messages to all subscribed clients.
+        Auto-restarts on unexpected exceptions so the listener never silently dies.
         """
         logger.info("PubSub listener started")
-        
-        try:
-            while self._running and self._pubsub:
-                try:
-                    message = await asyncio.wait_for(
-                        self._pubsub.get_message(ignore_subscribe_messages=True),
-                        timeout=1.0
-                    )
-                    
-                    if message and message["type"] == "message":
+
+        while self._running and self._pubsub:
+            try:
+                async for message in self._pubsub.listen():
+                    if not self._running:
+                        break
+                    if message and message.get("type") == "message":
                         await self._handle_message(message)
-                        
-                except asyncio.TimeoutError:
-                    continue
-                except RedisError as e:
-                    logger.error(f"PubSub error: {e}")
-                    await asyncio.sleep(1.0)
-                    
-        except asyncio.CancelledError:
-            logger.info("PubSub listener cancelled")
-        except Exception as e:
-            logger.error(f"PubSub listener error: {e}")
-        finally:
-            logger.info("PubSub listener stopped")
+
+            except asyncio.CancelledError:
+                logger.info("PubSub listener cancelled")
+                break
+            except RedisError as e:
+                logger.error(f"PubSub Redis error: {e}")
+                await asyncio.sleep(1.0)
+            except Exception as e:
+                self._listener_retries += 1
+                logger.error(f"PubSub listener error (retry {self._listener_retries}/{self.LISTENER_MAX_RETRIES}): {e}", exc_info=True)
+                if self._listener_retries >= self.LISTENER_MAX_RETRIES:
+                    self._listener_degraded = True
+                    logger.critical("PubSub listener degraded after max retries; no message delivery until restart")
+                    break
+                await asyncio.sleep(self.LISTENER_RETRY_SLEEP)
+
+        logger.info("PubSub listener stopped")
 
     async def _handle_message(self, message: Dict):
         """Process an incoming Pub/Sub message."""
@@ -228,15 +245,31 @@ class PubSubManager(RedisRetryMixin):
         
         # Get callbacks for this channel
         callbacks = self._subscriptions.get(channel, {})
-        
-        # Fan out to all subscribed clients
-        for client_id, callback in list(callbacks.items()):
-            try:
-                result = callback(channel, data)
-                if asyncio.iscoroutine(result):
-                    await result
-            except Exception as e:
-                logger.error(f"Callback error for client {client_id}: {e}")
+        if not callbacks:
+            return
+
+        # Pre-serialize once so 1000 clients don't each call json.dumps
+        pre_serialized = json.dumps(data)
+
+        # Build coroutines for parallel fan-out (avoid sequential delay for 1000+ clients)
+        timeout = getattr(settings, "FANOUT_CALLBACK_TIMEOUT", 5.0)
+
+        async def _invoke(client_id: int, cb: MessageCallback):
+            result = cb(channel, data, pre_serialized)
+            if asyncio.iscoroutine(result):
+                await result
+
+        async def _invoke_with_timeout(client_id: int, cb: MessageCallback):
+            await asyncio.wait_for(_invoke(client_id, cb), timeout=timeout)
+
+        coros = [_invoke_with_timeout(cid, cb) for cid, cb in list(callbacks.items())]
+        results = await asyncio.gather(*coros, return_exceptions=True)
+        for client_id, result in zip(callbacks.keys(), results):
+            if isinstance(result, Exception):
+                if isinstance(result, asyncio.TimeoutError):
+                    logger.warning(f"Fan-out timeout for client {client_id} (>{timeout}s)")
+                else:
+                    logger.error(f"Callback error for client {client_id}: {result}")
 
     def get_subscription_count(self, stream_type: str, symbol: str) -> int:
         """Get the number of clients subscribed to a stream."""

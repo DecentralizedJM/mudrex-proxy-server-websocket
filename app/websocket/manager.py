@@ -23,10 +23,21 @@ class ClientState:
     subscriptions: Set[str] = field(default_factory=set)
     message_count: int = 0
     error_count: int = 0
-    
+    _receive_count: int = field(default=0, repr=False)
+    _receive_window_start: float = field(default_factory=time.time, repr=False)
+
     def update_activity(self):
         self.last_activity = time.time()
-    
+
+    def check_receive_rate(self) -> bool:
+        """Return True if under rate limit, False if exceeded. Call once per received message."""
+        now = time.time()
+        if now - self._receive_window_start >= 1.0:
+            self._receive_window_start = now
+            self._receive_count = 0
+        self._receive_count += 1
+        return self._receive_count <= settings.MAX_MESSAGE_RATE_PER_CLIENT
+
     def is_idle(self, timeout: float) -> bool:
         return (time.time() - self.last_activity) > timeout
     
@@ -165,22 +176,21 @@ class ConnectionManager:
     async def broadcast(self, message: Dict[str, Any], exclude: Optional[Set[int]] = None):
         """
         Broadcast a message to all connected clients.
-        
-        Args:
-            message: Message to broadcast
-            exclude: Set of client IDs to exclude
         """
         exclude = exclude or set()
-        
+        tasks = []
         for client_id, state in list(self._clients.items()):
             if client_id in exclude:
                 continue
-                
-            try:
-                await state.websocket.send_json(message)
-                state.message_count += 1
-            except Exception:
-                pass
+            async def send_one(ws=state.websocket, st=state):
+                try:
+                    await ws.send_json(message)
+                    st.message_count += 1
+                except Exception:
+                    pass
+            tasks.append(send_one())
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def cleanup_idle(self) -> int:
         """
@@ -202,7 +212,8 @@ class ConnectionManager:
                     await state.websocket.close(code=4000, reason="Idle timeout")
                 except Exception:
                     pass
-                await self.disconnect(client_id)
+                # Do not call disconnect() here: handler's finally block will run on
+                # WebSocketDisconnect and perform full subscription teardown (_cleanup).
         
         if idle_clients:
             logger.info(f"Cleaned up {len(idle_clients)} idle connections")
