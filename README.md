@@ -1,24 +1,6 @@
-```
-  ███╗   ███╗██╗   ██╗██████╗ ██████╗ ███████╗██╗  ██╗
-  ████╗ ████║██║   ██║██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝
-  ██╔████╔██║██║   ██║██║  ██║██████╔╝█████╗   ╚███╔╝
-  ██║╚██╔╝██║██║   ██║██║  ██║██╔══██╗██╔══╝   ██╔██╗
-  ██║ ╚═╝ ██║╚██████╔╝██████╔╝██║  ██║███████╗██╔╝ ██╗
-  ╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
-  ██╗    ███████╗██████╗ ███████╗ ██████╗ ██████╗ ██╗  ██╗███████╗████████╗
-  ██║    ██╔════╝██╔══██╗██╔════╝██╔═══██╗██╔══██╗██║ ██╔╝██╔════╝╚══██╔══╝
-  ██║ █╗ █████╗  ██████╔╝███████╗██║   ██║██████╔╝█████╔╝ ███████╗  ██║
-  ██║███╗██╔══╝  ██╔══██╗╚════██║██║   ██║██╔══██╗██╔═██╗ ╚════██║  ██║
-  ██║╚███╗███████╗██████╔╝███████║╚██████╔╝██║  ██║██║  ██╗███████║  ██║
-  ╚═╝ ╚══╝╚══════╝╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝  ╚═╝
-  ─────────────────────────────────────────────────────────────────────────────────
-  Bybit V5  -->  Redis Pub/Sub  -->  1000+ clients  |  ticker · kline · trade
-  ─────────────────────────────────────────────────────────────────────────────────
-```
+# Mudrex websocket
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/DecentralizedJM/mudrex-proxy-server-websocket/main/assets/banner.svg" alt="Mudrex WebSocket" width="640"/>
-</p>
+Bybit V5  →  Redis Pub/Sub  →  1000+ clients  |  ticker · kline · trade
 
 Production-ready WebSocket proxy that connects to **Bybit V5** and exposes a **Mudrex-branded** real-time futures stream. Built for scale: parallel fan-out, rate limits, graceful shutdown, and human-readable subscription errors.
 
