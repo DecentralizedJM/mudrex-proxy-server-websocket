@@ -12,6 +12,7 @@ from app.websocket.models import (
     parse_stream_arg,
     make_stream_key,
     SubscribeResponse,
+    RejectedArg,
     UnsubscribeResponse,
     PongResponse,
     ErrorResponse,
@@ -123,7 +124,8 @@ class ClientHandler:
             return
         
         subscribed = []
-        
+        rejected = []
+
         for arg in args:
             try:
                 stream_type, symbol, interval = parse_stream_arg(arg)
@@ -155,14 +157,25 @@ class ClientHandler:
                 subscribed.append(arg)
 
             except ValueError as e:
+                human_reason = str(e)
+                if "wildcard" in human_reason.lower() or "Invalid symbol" in human_reason:
+                    human_reason = (
+                        "Wildcards (e.g. tickers.*) are not supported. "
+                        "Use specific symbols like tickers.BTCUSDT or ticker:ETHUSDT."
+                    )
+                rejected.append(RejectedArg(arg=arg, reason=human_reason))
                 logger.warning(f"Invalid subscription arg '{arg}': {e}")
-                continue
         
-        # Send response
+        # Build human-readable message
+        msg = f"Subscribed to {len(subscribed)} streams"
+        if rejected:
+            msg += f". {len(rejected)} rejected — see 'rejected' for details."
+        
         response = SubscribeResponse(
             success=len(subscribed) > 0,
             args=subscribed,
-            message=f"Subscribed to {len(subscribed)} streams"
+            message=msg,
+            rejected=rejected if rejected else None,
         )
         await self.client.websocket.send_json(response.model_dump())
 

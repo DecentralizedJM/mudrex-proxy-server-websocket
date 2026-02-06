@@ -71,12 +71,19 @@ class PingRequest(BaseModel):
 # Server -> Client Messages
 # =============================================================================
 
+class RejectedArg(BaseModel):
+    """One rejected subscription arg with a human-readable reason."""
+    arg: str
+    reason: str
+
+
 class SubscribeResponse(BaseModel):
     """Response to subscription request."""
     op: Literal["subscribe"] = "subscribe"
     success: bool
     args: List[str]
     message: Optional[str] = None
+    rejected: Optional[List[RejectedArg]] = None  # Invalid args and why (e.g. wildcards not supported)
 
 
 class UnsubscribeResponse(BaseModel):
@@ -185,6 +192,8 @@ def parse_stream_arg(arg: str) -> tuple[str, str, Optional[str]]:
     # Accept legacy dot format: tickers.SYMBOL -> ticker stream
     if arg.startswith("tickers.") and len(arg) > len("tickers."):
         symbol = arg[len("tickers.") :]
+        if "*" in symbol or not symbol.strip():
+            raise ValueError(f"Invalid symbol: wildcards and empty symbol not supported (Bybit requires specific symbols)")
         return "ticker", symbol, None
 
     parts = arg.split(":")
@@ -197,6 +206,8 @@ def parse_stream_arg(arg: str) -> tuple[str, str, Optional[str]]:
     valid_types = {e.value for e in StreamType}
     if stream_type not in valid_types:
         raise ValueError(f"Invalid stream type: {stream_type}. Expected one of {sorted(valid_types)}")
+    if "*" in symbol or not symbol.strip():
+        raise ValueError(f"Invalid symbol: wildcards and empty symbol not supported (Bybit requires specific symbols)")
     if len(parts) == 2:
         return stream_type, symbol, None
     return stream_type, symbol, parts[1]
