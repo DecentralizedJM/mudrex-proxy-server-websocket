@@ -47,7 +47,7 @@ python -m uvicorn app.main:app --reload
 
 ---
 
-## Architecture (Mermaid)
+## Architecture
 
 ### High-level flow
 
