@@ -17,7 +17,7 @@
 ```
 
 <p align="center">
-  <img src="assets/banner.svg" alt="Mudrex WebSocket" width="640"/>
+  <img src="assets/banner.svg?v=2" alt="Mudrex WebSocket" width="640"/>
 </p>
 
 Production-ready WebSocket proxy that connects to **Bybit V5** and exposes a **Mudrex-branded** real-time futures stream. Built for scale: parallel fan-out, rate limits, graceful shutdown, and human-readable subscription errors.
