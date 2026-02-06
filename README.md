@@ -1,14 +1,14 @@
-```
-  ███╗   ███╗██╗   ██╗██████╗ ██████╗ ███████╗██╗  ██╗    ██╗    ██╗███████╗██████╗ 
-  ████╗ ████║██║   ██║██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝    ██║    ██║██╔════╝██╔══██╗
-  ██╔████╔██║██║   ██║██║  ██║██████╔╝█████╗   ╚███╔╝     ██║ █╗ ██║█████╗  ██████╔╝
-  ██║╚██╔╝██║██║   ██║██║  ██║██╔══██╗██╔══╝   ██╔██╗     ██║███╗██║██╔══╝  ██╔══██╗
-  ██║ ╚═╝ ██║╚██████╔╝██████╔╝██║  ██║███████╗██╔╝ ██╗    ╚███╔███╔╝███████╗██║  ██║
-  ╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝     ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝
-  ═══════════════════════════════════════════════════════════════════════════════════
-  [ PROXY ]  Bybit V5  -->  Redis Pub/Sub  -->  1000+ clients  |  ticker · kline · trade
-  ═══════════════════════════════════════════════════════════════════════════════════
-```
+<pre style="font-family: monospace; font-size: 0.75rem; line-height: 1.2; margin: 0; background: transparent;">
+<span style="color: #00d4ff">  ███╗   ███╗██╗   ██╗██████╗ ██████╗ ███████╗██╗  ██╗</span>    <span style="color: #7b2cbf">██╗    ██╗███████╗</span>
+<span style="color: #00d4ff">  ████╗ ████║██║   ██║██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝</span>    <span style="color: #7b2cbf">██║    ██║██╔════╝</span>
+<span style="color: #00d4ff">  ██╔████╔██║██║   ██║██║  ██║██████╔╝█████╗   ╚███╔╝</span>     <span style="color: #7b2cbf">██║ █╗ ██║███████╗</span>
+<span style="color: #00d4ff">  ██║╚██╔╝██║██║   ██║██║  ██║██╔══██╗██╔══╝   ██╔██╗</span>     <span style="color: #7b2cbf">██║███╗██║╚════██║</span>
+<span style="color: #00d4ff">  ██║ ╚═╝ ██║╚██████╔╝██████╔╝██║  ██║███████╗██╔╝ ██╗</span>    <span style="color: #7b2cbf">██║╚███╔╝███████║</span>
+<span style="color: #00d4ff">  ╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝</span>     <span style="color: #7b2cbf">╚═╝ ╚══╝ ╚══════╝</span>
+<span style="color: #06ffa5">  ═══════════════════════════════════════════════════════════════════════════════════</span>
+<span style="color: #ff006e">  [ PROXY ]</span>  Bybit V5  <span style="color: #06ffa5">--></span>  Redis Pub/Sub  <span style="color: #06ffa5">--></span>  1000+ clients  <span style="color: #ff006e">|</span>  ticker · kline · trade
+<span style="color: #06ffa5">  ═══════════════════════════════════════════════════════════════════════════════════</span>
+</pre>
 
 Production-ready WebSocket proxy that connects to **Bybit V5** and exposes a **Mudrex-branded** real-time futures stream. Built for scale: parallel fan-out, rate limits, graceful shutdown, and human-readable subscription errors.
 
