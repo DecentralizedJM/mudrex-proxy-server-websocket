@@ -3,7 +3,6 @@ WebSocket connection manager.
 Tracks all connected clients and their state.
 """
 import asyncio
-import json
 import time
 from typing import Dict, Optional, Set, Any
 from dataclasses import dataclass, field
@@ -12,21 +11,6 @@ from app.config import settings
 from app.utils.logging import get_logger
 
 logger = get_logger("websocket.manager")
-
-# #region agent log
-import pathlib as _pathlib
-_DEBUG_LOG_PATH = _pathlib.Path(__file__).resolve().parent.parent.parent / ".cursor" / "debug.log"
-def _debug_log(location: str, message: str, data: dict = None, hypothesis_id: str = None):
-    try:
-        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"id": f"log_{int(time.time()*1000)}", "timestamp": int(time.time() * 1000), "location": location, "message": message, "data": data or {}}
-        if hypothesis_id:
-            payload["hypothesisId"] = hypothesis_id
-        with open(_DEBUG_LOG_PATH, "a") as f:
-            f.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-# #endregion
 
 
 @dataclass
@@ -98,20 +82,12 @@ class ConnectionManager:
         Limit check is under lock; accept() runs outside lock so concurrent
         handshakes are not serialized (avoids timeouts under load).
         """
-        # #region agent log
-        t0 = time.perf_counter()
-        _debug_log("manager.py:connect", "before_lock", {"active": self.active_count, "t0": t0}, "H3")
-        # #endregion
         async with self._lock:
             if self.active_count >= settings.MAX_CLIENTS_TOTAL:
                 logger.warning(f"Connection limit reached ({settings.MAX_CLIENTS_TOTAL})")
                 return None
         # Accept outside lock so multiple clients can complete handshake in parallel
         await websocket.accept()
-        # #region agent log
-        t2 = time.perf_counter()
-        _debug_log("manager.py:connect", "after_accept", {"total_sec": t2 - t0}, "H3")
-        # #endregion
         client_id = id(websocket)
         state = ClientState(websocket=websocket, client_id=client_id)
         async with self._lock:

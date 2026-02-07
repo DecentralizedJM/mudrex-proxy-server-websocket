@@ -7,9 +7,6 @@ data to clients with Mudrex branding.
 Author: DecentralizedJM
 """
 import asyncio
-import json
-import os
-import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import JSONResponse
@@ -22,22 +19,6 @@ from app.websocket import handle_client_websocket, ConnectionManager
 
 # Initialize logging
 logger = setup_logging()
-
-# #region agent log
-import pathlib
-_DEBUG_LOG_DIR = pathlib.Path(__file__).resolve().parent.parent / ".cursor"
-DEBUG_LOG_PATH = _DEBUG_LOG_DIR / "debug.log"
-def _debug_log(location: str, message: str, data: dict = None, hypothesis_id: str = None):
-    try:
-        _DEBUG_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        payload = {"id": f"log_{int(time.time()*1000)}", "timestamp": int(time.time() * 1000), "location": location, "message": message, "data": data or {}}
-        if hypothesis_id:
-            payload["hypothesisId"] = hypothesis_id
-        with open(DEBUG_LOG_PATH, "a") as f:
-            f.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-# #endregion
 
 # =============================================================================
 # Global State
@@ -74,11 +55,6 @@ async def lifespan(app: FastAPI):
     # =========================================================================
     # Startup
     # =========================================================================
-    t0 = time.perf_counter()
-    # #region agent log
-    _debug_log("main.py:lifespan", "startup_start", {"PORT_env": os.environ.get("PORT"), "settings_PORT": settings.PORT, "HOST": settings.HOST, "t0": t0}, "H1")
-    _debug_log("main.py:lifespan", "startup_start", {"t0": t0}, "H2")
-    # #endregion
     logger.info("=" * 60)
     logger.info("Starting Mudrex WebSocket Proxy Server")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
@@ -89,10 +65,6 @@ async def lifespan(app: FastAPI):
         # Initialize Redis
         logger.info("Connecting to Redis...")
         redis = await get_redis()
-        t1 = time.perf_counter()
-        # #region agent log
-        _debug_log("main.py:lifespan", "after_redis", {"elapsed": t1 - t0}, "H2")
-        # #endregion
         
         # Check Redis health
         if not await check_redis_health():
@@ -105,19 +77,11 @@ async def lifespan(app: FastAPI):
         
         # Start pub/sub listener
         await pubsub_manager.start()
-        t2 = time.perf_counter()
-        # #region agent log
-        _debug_log("main.py:lifespan", "after_pubsub_start", {"elapsed": t2 - t0}, "H2")
-        # #endregion
         logger.info("PubSub manager started")
         
         # Initialize upstream pool
         upstream_pool = UpstreamPool(pubsub_manager, subscription_manager)
         await upstream_pool.start()
-        t3 = time.perf_counter()
-        # #region agent log
-        _debug_log("main.py:lifespan", "after_upstream_start", {"elapsed": t3 - t0}, "H2")
-        # #endregion
         logger.info("Upstream pool started")
         
         # Start background cleanup task
@@ -126,10 +90,6 @@ async def lifespan(app: FastAPI):
         # Clean up any stale subscriptions from previous run
         await subscription_manager.cleanup_stale()
         
-        t4 = time.perf_counter()
-        # #region agent log
-        _debug_log("main.py:lifespan", "before_yield", {"total_startup_sec": t4 - t0}, "H2")
-        # #endregion
         logger.info("Server startup complete")
         logger.info("=" * 60)
         
@@ -236,9 +196,6 @@ async def websocket_endpoint(websocket: WebSocket):
     - Send: {"op": "ping"}
     - Receive: {"stream": "mudrex.futures.ticker.BTCUSDT", "type": "update", "data": {...}}
     """
-    # #region agent log
-    _debug_log("main.py:websocket_endpoint", "ws_entry", {"ts": time.perf_counter()}, "H5")
-    # #endregion
     await handle_client_websocket(
         websocket=websocket,
         manager=connection_manager,
@@ -246,9 +203,6 @@ async def websocket_endpoint(websocket: WebSocket):
         pubsub=pubsub_manager,
         subscriptions=subscription_manager,
     )
-    # #region agent log
-    _debug_log("main.py:websocket_endpoint", "ws_exit", {"ts": time.perf_counter()}, "H5")
-    # #endregion
 
 
 # =============================================================================
@@ -260,18 +214,10 @@ async def health():
     """
     Health check endpoint for load balancers and monitoring.
     """
-    # #region agent log
-    health_t0 = time.perf_counter()
-    _debug_log("main.py:health", "health_entry", {"ts": health_t0}, "H4")
-    # #endregion
     redis_healthy = await check_redis_health()
     listener_healthy = pubsub_manager.is_listener_healthy() if pubsub_manager else True
     ok = redis_healthy and listener_healthy
     status = "healthy" if ok else "degraded"
-    # #region agent log
-    health_t1 = time.perf_counter()
-    _debug_log("main.py:health", "health_exit", {"duration_sec": health_t1 - health_t0, "ts": health_t1}, "H4")
-    # #endregion
     return JSONResponse(
         status_code=200 if ok else 503,
         content={

@@ -7,20 +7,6 @@ import json
 import time
 from typing import Dict, Any, Optional
 from fastapi import WebSocket, WebSocketDisconnect
-# #region agent log
-import pathlib as _pathlib
-_DEBUG_LOG_PATH = _pathlib.Path(__file__).resolve().parent.parent.parent / ".cursor" / "debug.log"
-def _debug_log(location: str, message: str, data: dict = None, hypothesis_id: str = None):
-    try:
-        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"id": f"log_{int(time.time()*1000)}", "timestamp": int(time.time() * 1000), "location": location, "message": message, "data": data or {}}
-        if hypothesis_id:
-            payload["hypothesisId"] = hypothesis_id
-        with open(_DEBUG_LOG_PATH, "a") as f:
-            f.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-# #endregion
 from app.websocket.manager import ConnectionManager, ClientState
 from app.websocket.models import (
     parse_stream_arg,
@@ -306,16 +292,7 @@ async def handle_client_websocket(
     Main entry point for handling a WebSocket connection.
     Called by FastAPI for each new connection.
     """
-    # #region agent log
-    t0 = time.perf_counter()
-    _debug_log("handler.py:handle_client_websocket", "entry_before_connect", {"t0": t0}, "H5")
-    # #endregion
-    # Accept connection
     client = await manager.connect(websocket)
-    # #region agent log
-    t1 = time.perf_counter()
-    _debug_log("handler.py:handle_client_websocket", "after_connect", {"connect_sec": t1 - t0, "client_is_none": client is None}, "H5")
-    # #endregion
     if client is None:
         # Connection rejected (limit reached)
         await websocket.close(code=4003, reason="Connection limit reached")
