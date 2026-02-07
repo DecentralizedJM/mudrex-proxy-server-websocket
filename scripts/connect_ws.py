@@ -15,6 +15,7 @@ import sys
 
 try:
     import websockets
+    from websockets.exceptions import InvalidStatus
 except ImportError:
     print("Install: pip install websockets", file=sys.stderr)
     sys.exit(1)
@@ -66,6 +67,15 @@ async def run(uri: str, streams: list[str], retry: bool):
             if not retry:
                 return
             print("[DISCONNECT] Connection closed. Reconnecting...", flush=True)
+        except InvalidStatus as e:
+            print(f"[DISCONNECT] {e}", flush=True)
+            if e.response.status_code == 502:
+                print("(Railway proxy 502: check Service → Settings → health check, or try again.)", flush=True)
+            if not retry:
+                sys.exit(1)
+            print(f"Reconnecting in {delay}s...", flush=True)
+            await asyncio.sleep(delay)
+            delay = min(delay * RECONNECT_DELAY_MULTIPLIER, RECONNECT_DELAY_MAX)
         except (TimeoutError, ConnectionRefusedError, OSError) as e:
             print(f"[DISCONNECT] {e}", flush=True)
             if not retry:

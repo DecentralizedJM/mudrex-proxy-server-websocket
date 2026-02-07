@@ -319,6 +319,11 @@ If users report timeouts or "not connecting":
    - **Redis in same region** – Use Redis in the same region/provider as the WebSocket service so startup is fast.
    - **Client timeout** – Use a first-connection timeout of at least **45–60 seconds** so one attempt can survive a cold start; the terminal client in this repo uses retry with backoff by default.
 3. **Check in Railway:** Service logs (startup, Redis connected, "Server startup complete"), Redis service healthy, and that the WebSocket service is not being put to sleep.
+4. **HTTP 502 from Railway:** If deploy logs show the app running (e.g. "Uvicorn running on http://0.0.0.0:8080") but clients get 502:
+   - Set **Health Check** path to **`/ready`** in Railway → Service → Settings. The app's `GET /ready` returns 200 immediately (no Redis); use `GET /health` for monitoring.
+   - Confirm **HTTP** works: `curl -s -o /dev/null -w "%{http_code}" https://your-app.up.railway.app/ready` (should be 200). If 200, the proxy reaches the app; 502 may be limited to WebSocket upgrade or transient.
+   - In Railway: **Service → Settings** check **Health Check**. If a custom path is set, ensure it returns 2xx quickly. Try disabling a custom health check or using `/` or `/health`.
+   - Ensure the service uses **PORT** (the repo’s `scripts/start.sh` does this). Regenerating the public domain in Settings can help if the proxy was pointing at the wrong port.
 
 ---
 

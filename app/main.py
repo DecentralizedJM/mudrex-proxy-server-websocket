@@ -7,6 +7,7 @@ data to clients with Mudrex branding.
 Author: DecentralizedJM
 """
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import JSONResponse
@@ -214,19 +215,33 @@ async def health():
     """
     Health check endpoint for load balancers and monitoring.
     """
-    redis_healthy = await check_redis_health()
-    listener_healthy = pubsub_manager.is_listener_healthy() if pubsub_manager else True
-    ok = redis_healthy and listener_healthy
-    status = "healthy" if ok else "degraded"
-    return JSONResponse(
-        status_code=200 if ok else 503,
-        content={
-            "status": status,
-            "redis": "connected" if redis_healthy else "disconnected",
-            "pubsub_listener": "ok" if listener_healthy else "degraded",
-            "connections": connection_manager.active_count,
-        }
-    )
+    # #region agent log
+    t0 = time.perf_counter()
+    logger.info("[HEALTH] request received")
+    # #endregion
+    try:
+        redis_healthy = await check_redis_health()
+        listener_healthy = pubsub_manager.is_listener_healthy() if pubsub_manager else True
+        ok = redis_healthy and listener_healthy
+        status = "healthy" if ok else "degraded"
+        # #region agent log
+        duration = time.perf_counter() - t0
+        logger.info(f"[HEALTH] response ready duration_sec={duration:.3f} status={status}")
+        # #endregion
+        return JSONResponse(
+            status_code=200 if ok else 503,
+            content={
+                "status": status,
+                "redis": "connected" if redis_healthy else "disconnected",
+                "pubsub_listener": "ok" if listener_healthy else "degraded",
+                "connections": connection_manager.active_count,
+            }
+        )
+    except Exception as e:
+        # #region agent log
+        logger.error(f"[HEALTH] error before response: {e}", exc_info=True)
+        # #endregion
+        raise
 
 
 @app.get("/stats")
@@ -244,6 +259,16 @@ async def stats():
     }
 
 
+@app.get("/ready")
+async def ready():
+    """
+    Fast readiness probe: returns 200 immediately with no dependency checks.
+    Use this as Railway's health check path so the proxy gets a quick 200 and routes traffic.
+    For dependency status use GET /health instead.
+    """
+    return {"ok": True}
+
+
 @app.get("/")
 async def root():
     """Root endpoint with API information."""
@@ -252,6 +277,7 @@ async def root():
         "version": "1.0.0",
         "websocket": "/ws",
         "health": "/health",
+        "ready": "/ready",
         "docs": "/docs" if settings.DEBUG else "disabled",
     }
 
