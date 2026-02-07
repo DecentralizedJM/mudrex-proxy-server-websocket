@@ -6,7 +6,6 @@ import asyncio
 import time
 from typing import Dict, Optional, Set, Any
 from dataclasses import dataclass, field
-from fastapi import WebSocket
 from app.config import settings
 from app.utils.logging import get_logger
 
@@ -16,7 +15,7 @@ logger = get_logger("websocket.manager")
 @dataclass
 class ClientState:
     """State for a connected client."""
-    websocket: WebSocket
+    websocket: Any  # WebSocketAdapter (or anything with send_json/send_text/close/accept)
     client_id: int
     connected_at: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
@@ -76,7 +75,7 @@ class ConnectionManager:
         """Number of currently connected clients."""
         return len(self._clients)
 
-    async def connect(self, websocket: WebSocket) -> Optional[ClientState]:
+    async def connect(self, websocket: Any) -> Optional[ClientState]:
         """
         Accept a new WebSocket connection.
         Limit check is under lock; accept() runs outside lock so concurrent

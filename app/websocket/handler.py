@@ -6,7 +6,7 @@ import asyncio
 import json
 import time
 from typing import Dict, Any, Optional
-from fastapi import WebSocket, WebSocketDisconnect
+from websockets.exceptions import ConnectionClosed
 from app.websocket.manager import ConnectionManager, ClientState
 from app.websocket.models import (
     parse_stream_arg,
@@ -85,7 +85,7 @@ class ClientHandler:
                     logger.error(f"Error handling message from {client_id}: {e}")
                     await self._send_error("INTERNAL_ERROR", str(e))
                     
-        except WebSocketDisconnect:
+        except ConnectionClosed:
             logger.debug(f"Client {client_id} disconnected normally")
         except Exception as e:
             logger.error(f"Client {client_id} error: {e}")
@@ -282,7 +282,7 @@ class ClientHandler:
 
 
 async def handle_client_websocket(
-    websocket: WebSocket,
+    websocket,
     manager: ConnectionManager,
     upstream_pool: UpstreamPool,
     pubsub: PubSubManager,
@@ -290,7 +290,7 @@ async def handle_client_websocket(
 ):
     """
     Main entry point for handling a WebSocket connection.
-    Called by FastAPI for each new connection.
+    Called by the standalone server for each new connection.
     """
     client = await manager.connect(websocket)
     if client is None:

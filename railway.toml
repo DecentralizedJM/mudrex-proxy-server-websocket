@@ -3,11 +3,9 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Healthcheck disabled: service may not be ready within retry window (e.g. Redis cold start)
-# healthcheckPath = "/health"
-# healthcheckTimeout = 30
-# When using Dockerfile, CMD runs scripts/start.sh which uses PORT. Override only if not using Docker image.
-# startCommand = "uvicorn app.main:app --host 0.0.0.0 --port 8000"
+# /ready returns 200 immediately (no dependency checks) so Railway can route traffic fast
+healthcheckPath = "/ready"
+healthcheckTimeout = 30
 numReplicas = 1
 
 # Restart policy
