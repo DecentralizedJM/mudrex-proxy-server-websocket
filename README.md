@@ -309,6 +309,17 @@ mudrex-ws-proxy/
 - Run a single Uvicorn worker (WebSockets need one process).
 - Load test before going live (e.g. [Artillery](https://www.artillery.io/) with 1000 connections).
 
+### Production URL slow or "not working" (e.g. Railway)
+
+If users report timeouts or "not connecting":
+
+1. **Cold start** – On Railway (and similar), the app can **sleep** when idle. The first connection then waits for the container to start, Redis connect, and Bybit upstream to come up (often 30–60s). Clients with a short timeout (e.g. 10s) will fail.
+2. **Fix for users to connect quickly:**
+   - **Keep the service always on** – Use a Railway plan or setting that does not spin down the service, so the app is already running when users connect.
+   - **Redis in same region** – Use Redis in the same region/provider as the WebSocket service so startup is fast.
+   - **Client timeout** – Use a first-connection timeout of at least **45–60 seconds** so one attempt can survive a cold start; the terminal client in this repo uses retry with backoff by default.
+3. **Check in Railway:** Service logs (startup, Redis connected, "Server startup complete"), Redis service healthy, and that the WebSocket service is not being put to sleep.
+
 ---
 
 ## License

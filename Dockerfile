@@ -44,16 +44,16 @@ COPY --from=builder /opt/venv /opt/venv
 RUN useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app
 
-# Copy application code
+# Copy application code and start script
 COPY --chown=appuser:appuser app/ /app/app/
+COPY --chown=appuser:appuser scripts/start.sh /app/scripts/start.sh
+RUN chmod +x /app/scripts/start.sh
 
 # Switch to non-root user
 USER appuser
 
-# Expose port
+# Expose port (Railway uses PORT env at runtime)
 EXPOSE 8000
 
-# Note: Health checks are managed by Railway, not Docker
-
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Run via script so PORT from Railway is always used
+CMD ["/app/scripts/start.sh"]
