@@ -13,13 +13,11 @@ Run:
 """
 
 import asyncio
-import http
 import json
 import os
 import signal
 import time
 
-from websockets.datastructures import Headers
 from websockets.legacy.server import serve
 
 from app.config import settings
@@ -65,7 +63,7 @@ async def process_request(path, request_headers):
     route = path.split("?")[0]
 
     if route == "/ready":
-        return _json_response(http.HTTPStatus.OK, {"ok": True})
+        return _json_response(200, {"ok": True})
 
     if route == "/health":
         return await _health_response()
@@ -74,7 +72,7 @@ async def process_request(path, request_headers):
         return _stats_response()
 
     if route == "/":
-        return _json_response(http.HTTPStatus.OK, {
+        return _json_response(200, {
             "name": "Mudrex Futures WebSocket",
             "version": "1.0.0",
             "websocket": "/ws",
@@ -86,7 +84,7 @@ async def process_request(path, request_headers):
         return None  # proceed with WebSocket handshake
 
     # Everything else → 404
-    return _json_response(http.HTTPStatus.NOT_FOUND, {"error": "Not found"})
+    return _json_response(404, {"error": "Not found"})
 
 
 # ---------------------------------------------------------------------------
@@ -94,15 +92,9 @@ async def process_request(path, request_headers):
 # ---------------------------------------------------------------------------
 
 def _json_response(status_code, body_dict):
-    """Return the 3-tuple ``(status, headers, body)`` expected by the legacy API.
-    status_code: http.HTTPStatus (e.g. HTTPStatus.OK).
-    Headers must be a Headers instance so the server can call setdefault() on it.
-    """
+    """Return the 3-tuple ``(status, headers, body)`` expected by the legacy API."""
     body = json.dumps(body_dict).encode()
-    headers = Headers()
-    headers["Content-Type"] = "application/json"
-    headers["Content-Length"] = str(len(body))
-    headers["Connection"] = "close"
+    headers = [("Content-Type", "application/json"), ("Content-Length", str(len(body)))]
     return (status_code, headers, body)
 
 
@@ -112,7 +104,7 @@ async def _health_response():
         listener_healthy = pubsub_manager.is_listener_healthy() if pubsub_manager else True
         ok = redis_healthy and listener_healthy
         status_str = "healthy" if ok else "degraded"
-        code = http.HTTPStatus.OK if ok else http.HTTPStatus.SERVICE_UNAVAILABLE
+        code = 200 if ok else 503
         return _json_response(code, {
             "status": status_str,
             "redis": "connected" if redis_healthy else "disconnected",
@@ -121,11 +113,11 @@ async def _health_response():
         })
     except Exception as exc:
         logger.error(f"[HEALTH] error: {exc}", exc_info=True)
-        return _json_response(http.HTTPStatus.SERVICE_UNAVAILABLE, {"status": "error", "detail": str(exc)})
+        return _json_response(503, {"status": "error", "detail": str(exc)})
 
 
 def _stats_response():
-    return _json_response(http.HTTPStatus.OK, {
+    return _json_response(200, {
         "connections": connection_manager.get_stats(),
         "upstream": upstream_pool.get_stats() if upstream_pool else {},
         "pubsub": {
