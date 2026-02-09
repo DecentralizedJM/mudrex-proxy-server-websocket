@@ -13,7 +13,7 @@
 
 Production-ready WebSocket proxy that connects to **Bybit V5** and exposes a **Mudrex-branded** real-time futures stream. Built for scale: parallel fan-out, rate limits, graceful shutdown, and human-readable subscription errors.
 
-![Architecture](https://img.shields.io/badge/Architecture-FastAPI%20%2B%20Redis-blue)
+![Architecture](https://img.shields.io/badge/Architecture-websockets.serve%20%2B%20Redis-blue)
 ![Python](https://img.shields.io/badge/Python-3.11+-green)
 ![Deploy](https://img.shields.io/badge/Deploy-Railway-purple)
 
@@ -45,8 +45,10 @@ cp .env.example .env
 ```bash
 pip install -r requirements.txt
 docker run -d -p 6379:6379 redis:alpine
-python -m uvicorn app.main:app --reload
+python -m app.standalone_server
 ```
+
+For development with auto-reload, use a tool like `watchfiles` or run without reload.
 
 ### 3. Deploy to Railway
 
@@ -68,7 +70,7 @@ flowchart LR
         CN[Client N]
     end
     subgraph proxy [Mudrex WS Proxy]
-        API[FastAPI /ws]
+        WS[websockets.serve]
         Handler[Handler]
         PubSub[Redis Pub/Sub]
         SubMgr[Subscription Manager]
@@ -76,7 +78,7 @@ flowchart LR
     end
     Bybit[Bybit V5 WS]
     Redis[(Redis)]
-    C1 & C2 & CN --> API --> Handler
+    C1 & C2 & CN --> WS --> Handler
     Handler --> SubMgr
     Handler --> PubSub
     PubSub --> Redis
@@ -136,6 +138,7 @@ sequenceDiagram
 flowchart TD
     subgraph endpoints [HTTP]
         Root["GET /"]
+        Ready["GET /ready"]
         Health["GET /health"]
         Stats["GET /stats"]
     end
@@ -143,6 +146,7 @@ flowchart TD
         RedisCheck[Redis ping]
         ListenerCheck[PubSub listener alive]
     end
+    Ready --> Instant[200 immediately]
     Health --> RedisCheck
     Health --> ListenerCheck
     Root --> Info[API info]
@@ -254,6 +258,7 @@ asyncio.run(main())
 | Endpoint | Description |
 |----------|-------------|
 | `GET /` | API info |
+| `GET /ready` | Readiness probe: 200 immediately (no dependency checks). Use for Railway health check. |
 | `GET /health` | Health check: Redis + PubSub listener status |
 | `GET /stats` | Server statistics (connections, upstream, pubsub) |
 | `WS /ws` | WebSocket endpoint |
@@ -265,21 +270,25 @@ asyncio.run(main())
 ```
 mudrex-ws-proxy/
 ├── app/
-│   ├── main.py              # FastAPI, lifespan, graceful shutdown
-│   ├── config.py            # Settings
-│   ├── websocket/           # Client handling
-│   │   ├── handler.py       # Subscribe/unsubscribe, rate limit, rejected args
-│   │   ├── manager.py       # Connection manager, idle cleanup
-│   │   └── models.py        # Pydantic models, parse_stream_arg
-│   ├── upstream/            # Bybit
-│   │   ├── bybit_client.py  # WS client, reconnect, heartbeat
-│   │   ├── pool.py          # Pool, ensure_subscribed (in-flight race fix)
-│   │   └── transformer.py  # Bybit → Mudrex format
+│   ├── standalone_server.py # Entrypoint: websockets.serve, process_request, startup/shutdown
+│   ├── main.py               # Legacy FastAPI (optional); use standalone_server in production
+│   ├── config.py             # Settings
+│   ├── websocket/            # Client handling
+│   │   ├── adapter.py        # WebSocketAdapter: recv/send/close → receive_text/send_json/close
+│   │   ├── handler.py        # Subscribe/unsubscribe, rate limit, rejected args
+│   │   ├── manager.py        # Connection manager, idle cleanup
+│   │   └── models.py         # Pydantic models, parse_stream_arg
+│   ├── upstream/             # Bybit
+│   │   ├── bybit_client.py   # WS client, reconnect, heartbeat
+│   │   ├── pool.py           # Pool, ensure_subscribed (in-flight race fix)
+│   │   └── transformer.py    # Bybit → Mudrex format
 │   ├── redis/
-│   │   ├── client.py        # Connection pool
-│   │   ├── pubsub.py        # Pub/Sub, listen(), parallel fan-out, pre-serialize
+│   │   ├── client.py         # Connection pool
+│   │   ├── pubsub.py         # Pub/Sub, listen(), parallel fan-out, pre-serialize
 │   │   └── subscriptions.py # Reference counting
 │   └── utils/logging.py
+├── scripts/
+│   └── start.sh              # Runs python -m app.standalone_server (uses PORT)
 ├── Dockerfile
 ├── railway.toml
 ├── requirements.txt
@@ -306,7 +315,7 @@ mudrex-ws-proxy/
 ### Production deployment (1000+ users)
 
 - Set `REDIS_MAX_CONNECTIONS=50` (or 50–100).
-- Run a single Uvicorn worker (WebSockets need one process).
+- The server runs as a single process (`python -m app.standalone_server`); no workers.
 - Load test before going live (e.g. [Artillery](https://www.artillery.io/) with 1000 connections).
 
 ### Production URL slow or "not working" (e.g. Railway)
@@ -319,11 +328,11 @@ If users report timeouts or "not connecting":
    - **Redis in same region** – Use Redis in the same region/provider as the WebSocket service so startup is fast.
    - **Client timeout** – Use a first-connection timeout of at least **45–60 seconds** so one attempt can survive a cold start; the terminal client in this repo uses retry with backoff by default.
 3. **Check in Railway:** Service logs (startup, Redis connected, "Server startup complete"), Redis service healthy, and that the WebSocket service is not being put to sleep.
-4. **HTTP 502 from Railway:** If deploy logs show the app running (e.g. "Uvicorn running on http://0.0.0.0:8080") but clients get 502:
-   - Set **Health Check** path to **`/ready`** in Railway → Service → Settings. The app's `GET /ready` returns 200 immediately (no Redis); use `GET /health` for monitoring.
+4. **HTTP 502 from Railway:** If deploy logs show the app running (e.g. "Listening on ws://0.0.0.0:8080") but clients get 502:
+   - Set **Health Check** path to **`/ready`** in Railway → Service → Settings. The app's `GET /ready` returns 200 immediately (no Redis); use `GET /health` for monitoring. The repo's `railway.toml` sets `healthcheckPath = "/ready"`.
    - Confirm **HTTP** works: `curl -s -o /dev/null -w "%{http_code}" https://your-app.up.railway.app/ready` (should be 200). If 200, the proxy reaches the app; 502 may be limited to WebSocket upgrade or transient.
    - In Railway: **Service → Settings** check **Health Check**. If a custom path is set, ensure it returns 2xx quickly. Try disabling a custom health check or using `/` or `/health`.
-   - Ensure the service uses **PORT** (the repo’s `scripts/start.sh` does this). Regenerating the public domain in Settings can help if the proxy was pointing at the wrong port.
+   - Ensure the service uses **PORT** (the repo’s `scripts/start.sh` exports `PORT` and runs `python -m app.standalone_server`). Regenerating the public domain in Settings can help if the proxy was pointing at the wrong port.
 
 ---
 
